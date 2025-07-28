@@ -61,33 +61,6 @@ comptime {
             \\    syscall
             \\    ret    
         );
-    } else {
-        // 32-bit version (WOW64)
-        asm (
-            \\.text
-            \\.globl _hells_gate
-            \\_hells_gate:
-            \\    push %ebp
-            \\    mov %esp, %ebp
-            \\    mov 8(%ebp), %eax
-            \\    mov %eax, w_system_call
-            \\    pop %ebp
-            \\    ret
-            \\
-            \\.globl _hell_descent
-            \\_hell_descent:
-            \\    push %ebp
-            \\    mov %esp, %ebp
-            \\    mov w_system_call, %eax
-            \\    mov 8(%ebp), %ecx
-            \\    mov 12(%ebp), %edx
-            \\    mov 16(%ebp), %r8d
-            \\    mov 20(%ebp), %r9d
-            \\    mov %ecx, %r10
-            \\    syscall
-            \\    pop %ebp
-            \\    ret
-        );
     }
 }
 
